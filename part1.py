@@ -31,11 +31,11 @@ def restricted_zone(frame):
     h, w = frame.shape[:2]
 
     zone = np.array([
-        [0, 0],
-        [w // 2, 0],
-        [w // 2, h // 2],
-        [0, h // 2]
-    ], dtype=np.int32)
+    [w // 4, h // 4],
+    [3 * w // 4, h // 4],
+    [3 * w // 4, 3 * h // 4],
+    [w // 4, 3 * h // 4]
+], dtype=np.int32)
 
     return zone.reshape((-1, 1, 2))
 

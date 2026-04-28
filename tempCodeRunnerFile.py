@@ -1,0 +1,1 @@
+os.makedirs("abandoned", exist_ok=True)

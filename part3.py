@@ -6,11 +6,11 @@ from collections import defaultdict, deque
 import math
 import pickle
 
-MIN_HISTORY = 15
-BEHAVIOR_WINDOW = 120
-FPS = 25
+MIN_HISTORY = 10
+BEHAVIOR_WINDOW = 20
+FPS = 3
 
-ANOMALY_THRESHOLD = -0.05   
+ANOMALY_THRESHOLD = 0
 ANOMALY_CONFIRM_COUNT = 5   
 SMOOTHING_FACTOR = 0.6      
 
@@ -74,7 +74,8 @@ def extract_features(track_id):
         np.std(speeds),
         path_length,
         net_displacement,
-        inside_time / total_time
+        # inside_time / total_time
+        0
     ]
 
     return np.array(feature, dtype=np.float32)
@@ -108,7 +109,12 @@ def detect_and_track(model, frame):
 
 def restricted_zone(frame):
     h, w = frame.shape[:2]
-    zone = np.array([[0,0],[w//5,0],[w//5,h//5],[0,h//5]], dtype=np.int32)
+    zone = np.array([
+    [2, 2],
+    [2, 2],
+    [2, 2],
+    [2, 2]
+], dtype=np.int32)
     return zone.reshape((-1,1,2))
 
 
@@ -124,7 +130,7 @@ def is_inside_zone(point, zone):
 # ================= MAIN =================
 def main():
     model = Load_model()
-    cap = cv.VideoCapture("test.mp4")
+    cap = cv.VideoCapture("test5.mp4")
 
     ret, frame = cap.read()
     if not ret:
@@ -166,7 +172,7 @@ def main():
                     continue
 
                 score = getScore(behavior)
-
+                print(f"Track ID: {track_id}, Anomaly Score: {score:.4f}")
                 # More stable decision
                 if score < ANOMALY_THRESHOLD:
                     anomaly_counter[track_id] += 1
