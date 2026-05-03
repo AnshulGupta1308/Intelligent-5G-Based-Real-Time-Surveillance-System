@@ -86,8 +86,7 @@ def main():
 
     model = Load_model()
 
-    cap = open_rtsp("rtsp://admin:admin123@192.168.128.10:554/avstream/channel=1/stream=0.sdp")
-
+    cap = cv.VideoCapture(0)
     alarm = init_sound()
 
     ret, frame = cap.read()

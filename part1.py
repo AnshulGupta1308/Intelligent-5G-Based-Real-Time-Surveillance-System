@@ -2,7 +2,7 @@ import cv2 as cv
 import numpy as np
 from ultralytics import YOLO
 import pygame
-from main import downscale,open_rtsp
+from main import downscale
 
 def init_sound():
     pygame.mixer.init()
@@ -74,7 +74,7 @@ def draw_visuals(frame, box, centroid, track_id, inside, zone):
 def main():
     model = Load_model()
     source = 0
-    cap = open_rtsp("rtsp://admin:admin123@192.168.128.10:554/avstream/channel=1/stream=0.sdp")
+    cap = Capture_video(source)
     alert_channel=init_sound()
     object_state = {}   # track_id → inside/outside
     ret2, frame2 = cap.read()

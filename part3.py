@@ -1,18 +1,18 @@
 import cv2 as cv
 import numpy as np
 from ultralytics import YOLO
-import pygame
 import time
-from main import downscale, open_rtsp
 from collections import defaultdict, deque
 import math
 import pickle
 
-MIN_HISTORY = 12
+MIN_HISTORY = 15
 BEHAVIOR_WINDOW = 120
 FPS = 25
-ANOMALY_THRESHOLD = -0.1
-ANOMALY_CONFIRM_COUNT = 4
+
+ANOMALY_THRESHOLD = -0.05   
+ANOMALY_CONFIRM_COUNT = 5   
+SMOOTHING_FACTOR = 0.6      
 
 history = defaultdict(lambda: deque(maxlen=120))
 feature_history = defaultdict(lambda: deque(maxlen=120))
@@ -21,10 +21,10 @@ anomaly_counter = defaultdict(int)
 model_if = pickle.load(open("iforest.pkl","rb"))
 scaler = pickle.load(open("scaler.pkl","rb"))
 
-
 def getScore(feature):
     feature_scaled = scaler.transform([feature])
     return model_if.decision_function(feature_scaled)[0]
+
 
 def update_history(track_id, centroid, inside, box):
     now = time.time()
@@ -41,7 +41,7 @@ def extract_features(track_id):
     inside_time = 0
 
     for i in range(1, len(data)):
-        dt = 1 / FPS  # fixed dt for stability
+        dt = 1 / FPS
 
         dx = data[i][0] - data[i-1][0]
         dy = data[i][1] - data[i-1][1]
@@ -57,12 +57,15 @@ def extract_features(track_id):
     if len(speeds) < 2:
         return None
 
+    # smoothing speeds (IMPORTANT for accuracy)
+    speeds = np.array(speeds)
+    speeds = SMOOTHING_FACTOR * speeds + (1 - SMOOTHING_FACTOR) * np.mean(speeds)
+
     dx = data[-1][0] - data[0][0]
     dy = data[-1][1] - data[0][1]
     net_displacement = math.sqrt(dx*dx + dy*dy)
 
     total_time = len(data) * (1/FPS)
-
     if total_time <= 0:
         return None
 
@@ -75,6 +78,7 @@ def extract_features(track_id):
     ]
 
     return np.array(feature, dtype=np.float32)
+
 
 def build_behavior_vector(track_id):
     h = feature_history[track_id]
@@ -97,30 +101,35 @@ def build_behavior_vector(track_id):
 def Load_model():
     return YOLO("yolov8n.pt")
 
+
 def detect_and_track(model, frame):
     return model.track(frame, persist=True, classes=[0], tracker="bytetrack.yaml")
+
 
 def restricted_zone(frame):
     h, w = frame.shape[:2]
     zone = np.array([[0,0],[w//5,0],[w//5,h//5],[0,h//5]], dtype=np.int32)
     return zone.reshape((-1,1,2))
 
+
 def Centroid(box):
     x1, y1, x2, y2 = map(int, box)
     return ((x1+x2)//2, (y1+y2)//2)
 
+
 def is_inside_zone(point, zone):
     return cv.pointPolygonTest(zone, (int(point[0]), int(point[1])), False) >= 0
 
+
+# ================= MAIN =================
 def main():
     model = Load_model()
-    cap = open_rtsp("rtsp://admin:admin123@192.168.128.10:554/avstream/channel=1/stream=0.sdp")
+    cap = cv.VideoCapture("test.mp4")
 
     ret, frame = cap.read()
     if not ret:
         return
 
-    frame = downscale(frame,1400,1300)
     zone = restricted_zone(frame)
 
     stTime = time.time()
@@ -131,7 +140,6 @@ def main():
         if not ret:
             break
 
-        frame = downscale(frame, 1400, 1300)
         cv.polylines(frame, [zone], True, (0, 0, 255), 2)
 
         results = detect_and_track(model, frame)
@@ -148,7 +156,7 @@ def main():
                 if features is not None:
                     feature_history[track_id].append(features)
 
-        # Evaluate every 2 seconds
+        # ====== ANOMALY CHECK ======
         if time.time() - stTime >= 2:
             outliers.clear()
 
@@ -159,17 +167,20 @@ def main():
 
                 score = getScore(behavior)
 
+                # More stable decision
                 if score < ANOMALY_THRESHOLD:
                     anomaly_counter[track_id] += 1
                 else:
-                    anomaly_counter[track_id] = 0
+                    anomaly_counter[track_id] = max(0, anomaly_counter[track_id] - 1)
 
                 if anomaly_counter[track_id] >= ANOMALY_CONFIRM_COUNT:
                     outliers.append(track_id)
 
             stTime = time.time()
 
-        # Draw results
+        # ====== DRAW ======
+        global_anomaly = len(outliers) > 0
+
         if results[0].boxes.id is not None:
             for box, track_id in zip(results[0].boxes.xyxy, results[0].boxes.id):
                 track_id = int(track_id)
@@ -177,17 +188,28 @@ def main():
 
                 if track_id in outliers:
                     cv.rectangle(frame, (x1,y1), (x2,y2), (0,0,255), 3)
-                    cv.putText(frame, "OUTLIER", (x1,y2+15),
+                    cv.putText(frame, "ANOMALY", (x1,y2+15),
                                cv.FONT_HERSHEY_SIMPLEX, 0.6, (0,0,255), 2)
                 else:
                     cv.rectangle(frame, (x1,y1), (x2,y2), (0,255,0), 2)
 
+        # ====== HEADING ALERT ======
+        if global_anomaly:
+            cv.putText(frame, "ANOMALY DETECTED",
+                       (50, 50),
+                       cv.FONT_HERSHEY_SIMPLEX,
+                       1.2,
+                       (0, 0, 255),
+                       3)
+
         cv.imshow("Frame", frame)
+
         if cv.waitKey(1) & 0xFF == 27:
             break
 
     cap.release()
     cv.destroyAllWindows()
+
 
 if __name__ == "__main__":
     main()
